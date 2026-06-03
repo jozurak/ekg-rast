@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meranie Elektrických Signálov Rastliny</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5a67d8;
+            --secondary: #764ba2;
+            --bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --card: #ffffff;
+            --text: #333;
+            --muted: #666;
+            --ok: #155724;
+            --ok-bg: #d4edda;
+            --bad: #721c24;
+            --bad-bg: #f8d7da;
+            --warn: #0c5460;
+            --warn-bg: #d1ecf1;
+            --border: #e8e8e8;
+        }
+
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .header,
+        .panel,
+        .chart-container,
+        .table-container {
+            background: var(--card);
+            border-radius: 14px;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            padding: 26px;
+            margin-bottom: 18px;
+        }
+
+        .header h1 {
+            color: var(--primary);
+            margin-bottom: 8px;
+            font-size: clamp(1.8rem, 4vw, 2.6rem);
+        }
+
+        .header p {
+            color: var(--muted);
+            font-size: 1.02rem;
+            line-height: 1.45;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            padding: 18px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-card .label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 1.9rem;
+            font-weight: 700;
+            min-height: 2.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .panel {
+            padding: 16px 18px;
+            margin-bottom: 18px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        button {
+            padding: 10px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 9px;
+            cursor: pointer;
+            font-size: 0.98rem;
+            transition: transform 0.08s ease, background 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover {
+            background: var(--secondary);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .time-filter-btn {
+            padding: 8px 13px;
+            font-size: 0.95rem;
+            background: #e9e9ef;
+            color: #333;
+        }
+
+        .time-filter-btn:hover {
+            background: #d5d5e2;
+        }
+
+        .time-filter-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .chart-container {
+            padding: 18px;
+            margin-bottom: 18px;
+            position: relative;
+            height: 520px;
+        }
+
+        .chart-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chart-title h2 {
+            font-size: 1.1rem;
+            color: #222;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.92rem;
+            line-height: 1;
+        }
+
+        .badge.online { background: var(--ok-bg); color: var(--ok); }
+        .badge.offline { background: var(--bad-bg); color: var(--bad); }
+        .badge.loading { background: var(--warn-bg); color: var(--warn); }
+        .badge.realtime { background: #ece8ff; color: #4c2fb8; }
+
+        .small-note {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .table-container {
+            padding: 18px;
+            overflow-x: auto;
+        }
+
+        .table-container h2 {
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th {
+            background: var(--primary);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        tr:hover td {
+            background: #f7f7fb;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(0, 0, 0, 0.12);
+            border-radius: 50%;
+            border-top-color: currentColor;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .time-wrap {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 12px;
+            background: #fafafa;
+            border: 1px solid #ececec;
+        }
+
+        .time-wrap .label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .time-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        #timeNavigation {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: #f8f9ff;
+            border: 1px solid #ecefff;
+        }
+
+        #timeRange {
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        .footer-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+
+            .header,
+            .panel,
+            .chart-container,
+            .table-container {
+                border-radius: 12px;
+            }
+
+            .controls,
+            .time-buttons {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .controls button,
+            .time-buttons button {
+                width: 100%;
+            }
+
+            .chart-container {
+                height: 420px;
+            }
+
+            #timeNavigation {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🌱 Meranie Elektrických Signálov Rastliny</h1>
+        <p>Graf sa načítava z <strong>Supabase</strong>, historické dáta sa stiahnu celé bez limitu a nové záznamy sa pridávajú okamžite cez <strong>Realtime subscriptions</strong>.</p>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="label">Status pripojenia</div>
+                <div class="value" id="status">
+                    <span class="loading-spinner"></span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Celkový počet meraní</div>
+                <div class="value" id="totalCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Posledné meranie</div>
+                <div class="value" id="lastValue">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Priemer</div>
+                <div class="value" id="avgValue">--</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="controls">
+            <button id="refreshBtn" onclick="manualRefresh()">🔄 Obnoviť históriu</button>
+            <button id="downloadBtn" onclick="downloadCSV()" style="background: #27ae60;">📥 Stiahnuť CSV</button>
+            <button id="clearBtn" onclick="clearAllData()" style="background: #e74c3c;">🗑️ Vyčistiť DB</button>
+        </div>
+
+        <div class="time-wrap">
+            <span class="label">⏱️ Filter času</span>
+            <div class="time-buttons">
+                <button onclick="filterByTime('all')" class="time-filter-btn active" data-time="all">📊 Všetko</button>
+                <button onclick="filterByTime(1440)" class="time-filter-btn" data-time="1440">📅 1 deň</button>
+                <button onclick="filterByTime(720)" class="time-filter-btn" data-time="720">🕐 12h</button>
+                <button onclick="filterByTime(180)" class="time-filter-btn" data-time="180">🕓 3h</button>
+                <button onclick="filterByTime(60)" class="time-filter-btn" data-time="60">🕑 1h</button>
+                <button onclick="filterByTime(30)" class="time-filter-btn" data-time="30">⏱️ 30min</button>
+                <button onclick="filterByTime(10)" class="time-filter-btn" data-time="10">⚡ 10min</button>
+                <button onclick="filterByTime(1)" class="time-filter-btn" data-time="1">🔴 1min</button>
+            </div>
+
+            <div id="timeNavigation">
+                <div><strong>Čas:</strong> <span id="timeRange"></span></div>
+                <div class="small-note">Kolesko myši alebo drag po grafe posúva zobrazený úsek.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <div class="chart-title">
+            <h2>Graf napätia rastliny</h2>
+            <span id="realtimeBadge" class="badge loading">⏳ Pripájam realtime...</span>
+        </div>
+        <canvas id="myChart"></canvas>
+    </div>
+
+    <div class="table-container">
+        <h2>Posledné merania</h2>
+        <div class="small-note">Tabuľka zobrazuje posledných 20 meraní zo všetkých načítaných údajov.</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Čas</th>
+                    <th>Napätie (mV)</th>
+                </tr>
+            </thead>
+            <tbody id="dataTableBody">
+                <tr><td colspan="2">Načítavam...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const SUPABASE_URL = 'https://azndkwiuaqxybggganow.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_WQv7HeDjPYp3ruS2f7q5Vg_wepJ5vRi';
+    const TABLE_NAME = 'plant_measurements';
+    const PAGE_SIZE = 1000;
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        realtime: {
+            params: {
+                eventsPerSecond: 10
+            }
+        }
+    });
+
+    let allData = [];
+    let chart = null;
+    let realtimeChannel = null;
+    let currentTimeFilter = 'all';
+    let timeOffset = 0; // minúty posunutia pri filtroch
+    let isRealtimeReady = false;
+    let latestHistoryLoadedAt = null;
+    let lastKnownTimestamp = null;
+    let backupPolling = null;
+
+    const chartCanvas = document.getElementById('myChart');
+    const realtimeBadge = document.getElementById('realtimeBadge');
+
+    function parseTimestampToSeconds(value) {
+        if (value === null || value === undefined || value === '') return NaN;
+
+        if (typeof value === 'number') {
+            return value > 1e12 ? value / 1000 : value;
+        }
+
+        if (value instanceof Date) {
+            return value.getTime() / 1000;
+        }
+
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+
+            if (/^\d+(\.\d+)?$/.test(trimmed)) {
+                const n = Number(trimmed);
+                return n > 1e12 ? n / 1000 : n;
+            }
+
+            const ms = Date.parse(trimmed);
+            if (!Number.isNaN(ms)) {
+                return ms / 1000;
+            }
+        }
+
+        return NaN;
+    }
+
+    function normalizeRow(row) {
+        const epoch = parseTimestampToSeconds(row.measured_at);
+        const voltage = Number(row.voltage_mv);
+
+        return {
+            ...row,
+            measured_at_epoch: epoch,
+            voltage_mv: Number.isFinite(voltage) ? voltage : null
+        };
+    }
+
+    function sortData(data) {
+        data.sort((a, b) => {
+            const aEpoch = a.measured_at_epoch ?? -Infinity;
+            const bEpoch = b.measured_at_epoch ?? -Infinity;
+            return aEpoch - bEpoch;
+        });
+        return data;
+    }
+
+    function getDataKey(row) {
+        if (row && row.id !== undefined && row.id !== null) return String(row.id);
+        return `${row.measured_at_epoch}|${row.voltage_mv}`;
+    }
+
+    function upsertRow(row) {
+        const normalized = normalizeRow(row);
+        const key = getDataKey(normalized);
+
+        const index = allData.findIndex(item => getDataKey(item) === key);
+        if (index >= 0) {
+            allData[index] = normalized;
+        } else {
+            allData.push(normalized);
+        }
+
+        sortData(allData);
+        return normalized;
+    }
+
+    function removeRow(row) {
+        const normalized = normalizeRow(row);
+        const key = getDataKey(normalized);
+        const before = allData.length;
+        allData = allData.filter(item => getDataKey(item) !== key);
+        return allData.length !== before;
+    }
+
+    function formatTime(seconds) {
+        if (!Number.isFinite(seconds)) return '--';
+        return new Date(seconds * 1000).toLocaleString('sk-SK', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    function formatShortTime(seconds) {
+        if (!Number.isFinite(seconds)) return '--';
+        return new Date(seconds * 1000).toLocaleTimeString('sk-SK', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    function getVisibleData() {
+        if (!allData.length) return [];
+
+        if (currentTimeFilter === 'all') {
+            return [...allData];
+        }
+
+        const filterMinutes = Number(currentTimeFilter);
+        if (!Number.isFinite(filterMinutes) || filterMinutes <= 0) {
+            return [...allData];
+        }
+
+        const lastTime = allData[allData.length - 1].measured_at_epoch;
+        const endTime = lastTime - (timeOffset * 60);
+        const startTime = endTime - (filterMinutes * 60);
+
+        return allData.filter(item => {
+            const t = item.measured_at_epoch;
+            return Number.isFinite(t) && t >= startTime && t <= endTime;
+        });
+    }
+
+    function updateStatus(status, text = null) {
+        const el = document.getElementById('status');
+        let html = '';
+
+        if (status === 'loading') {
+            html = '<span class="status loading"><span class="loading-spinner"></span> Načítavam...</span>';
+        } else if (status === 'online') {
+            html = '<span class="status online">🟢 Online</span>';
+        } else if (status === 'offline') {
+            html = '<span class="status offline">🔴 Offline</span>';
+        } else {
+            html = `<span class="status loading"><span class="loading-spinner"></span> ${text || 'Pripájam...'}</span>`;
+        }
+
+        el.innerHTML = html;
+    }
+
+    function updateRealtimeBadge(kind, text) {
+        realtimeBadge.className = 'badge';
+        if (kind === 'online') {
+            realtimeBadge.classList.add('realtime');
+            realtimeBadge.textContent = `🟣 ${text || 'Realtime aktívny'}`;
+        } else if (kind === 'offline') {
+            realtimeBadge.classList.add('offline');
+            realtimeBadge.textContent = `🔴 ${text || 'Realtime chyba'}`;
+        } else if (kind === 'loading') {
+            realtimeBadge.classList.add('loading');
+            realtimeBadge.textContent = `⏳ ${text || 'Pripájam realtime...'}`;
+        } else {
+            realtimeBadge.classList.add('loading');
+            realtimeBadge.textContent = text || 'Realtime';
+        }
+    }
+
+    function updateStats() {
+        document.getElementById('totalCount').textContent = allData.length.toString();
+
+        if (!allData.length) {
+            document.getElementById('lastValue').textContent = '--';
+            document.getElementById('avgValue').textContent = '--';
+            return;
+        }
+
+        const last = allData[allData.length - 1];
+        document.getElementById('lastValue').textContent =
+            Number.isFinite(last.voltage_mv) ? `${last.voltage_mv.toFixed(2)} mV` : '--';
+
+        const validVoltages = allData
+            .map(x => x.voltage_mv)
+            .filter(v => Number.isFinite(v));
+
+        if (validVoltages.length) {
+            const avg = validVoltages.reduce((a, b) => a + b, 0) / validVoltages.length;
+            document.getElementById('avgValue').textContent = `${avg.toFixed(2)} mV`;
+        } else {
+            document.getElementById('avgValue').textContent = '--';
+        }
+    }
+
+    function updateTimeNavigation() {
+        const nav = document.getElementById('timeNavigation');
+        const timeRange = document.getElementById('timeRange');
+
+        if (currentTimeFilter === 'all' || !allData.length) {
+            nav.style.display = 'none';
+            return;
+        }
+
+        const filterMinutes = Number(currentTimeFilter);
+        const lastTime = allData[allData.length - 1].measured_at_epoch;
+        const endTime = lastTime - (timeOffset * 60);
+        const startTime = endTime - (filterMinutes * 60);
+
+        nav.style.display = 'flex';
+        timeRange.textContent = `${formatTime(startTime)} → ${formatTime(endTime)}`;
+    }
+
+    function getChartBounds(data) {
+        if (!data.length) return null;
+
+        const values = data.map(x => x.y).filter(v => Number.isFinite(v));
+        if (!values.length) return null;
+
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const diff = max - min;
+        const pad = diff > 0 ? diff * 0.1 : 0.5;
+
+        return { min: min - pad, max: max + pad };
+    }
+
+    function buildChartData(data) {
+        return data
+            .filter(item => Number.isFinite(item.measured_at_epoch) && Number.isFinite(item.voltage_mv))
+            .map(item => ({
+                x: item.measured_at_epoch,
+                y: item.voltage_mv
+            }));
+    }
+
+    function renderChart() {
+        const visibleData = getVisibleData();
+        const points = buildChartData(visibleData);
+        const yBounds = getChartBounds(points);
+
+        if (!chart) {
+            chart = new Chart(chartCanvas, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Napätie rastliny (mV)',
+                        data: points,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.12)',
+                        borderWidth: 2,
+                        tension: 0.35,
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#667eea',
+                        pointBorderColor: '#667eea'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    parsing: false,
+                    normalized: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: { usePointStyle: true }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => {
+                                    if (!items.length) return '';
+                                    const sec = items[0].parsed.x;
+                                    return formatTime(sec);
+                                },
+                                label: (item) => {
+                                    const v = item.parsed.y;
+                                    return `Napätie: ${Number(v).toFixed(2)} mV`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: { display: true, text: 'Čas' },
+                            ticks: {
+                                callback: (value) => formatShortTime(Number(value))
+                            }
+                        },
+                        y: {
+                            title: { display: true, text: 'Napätie (mV)' },
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        } else {
+            chart.data.datasets[0].data = points;
+        }
+
+        if (yBounds) {
+            chart.options.scales.y.min = yBounds.min;
+            chart.options.scales.y.max = yBounds.max;
+        }
+
+        if (points.length) {
+            chart.options.scales.x.min = points[0].x;
+            chart.options.scales.x.max = points[points.length - 1].x;
+        } else {
+            delete chart.options.scales.x.min;
+            delete chart.options.scales.x.max;
+        }
+
+        chart.update('none');
+        updateTimeNavigation();
+        updateTable();
+    }
+
+    function updateTable() {
+        const tbody = document.getElementById('dataTableBody');
+        const lastRows = [...allData].slice(-20).reverse();
+
+        if (!lastRows.length) {
+            tbody.innerHTML = '<tr><td colspan="2">Žiadne dáta</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = lastRows.map(row => `
+            <tr>
+                <td>${formatTime(row.measured_at_epoch)}</td>
+                <td>${Number.isFinite(row.voltage_mv) ? row.voltage_mv.toFixed(2) + ' mV' : '--'}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function loadAllData() {
+        updateStatus('loading');
+        updateRealtimeBadge('loading', 'Pripájam realtime...');
+
+        try {
+            let from = 0;
+            let finished = false;
+            const loaded = [];
+
+            while (!finished) {
+                const to = from + PAGE_SIZE - 1;
+
+                const { data, error } = await supabaseClient
+                    .from(TABLE_NAME)
+                    .select('id, measured_at, voltage_mv')
+                    .order('measured_at', { ascending: true })
+                    .range(from, to);
+
+                if (error) {
+                    throw error;
+                }
+
+                const rows = (data || []).map(normalizeRow);
+                loaded.push(...rows);
+
+                if ((data || []).length < PAGE_SIZE) {
+                    finished = true;
+                } else {
+                    from += PAGE_SIZE;
+                }
+            }
+
+            allData = sortData(loaded);
+            latestHistoryLoadedAt = new Date();
+            if (allData.length > 0) {
+                lastKnownTimestamp =
+                    allData[allData.length - 1].measured_at_epoch;
+            }
+
+            updateStats();
+            renderChart();
+            updateStatus('online');
+            updateRealtimeBadge('loading', 'Pripájam realtime...');
+
+        } catch (error) {
+            console.error('Chyba pri načítaní histórie:', error);
+            updateStatus('offline');
+            updateRealtimeBadge('offline', 'História sa nenačítala');
+            document.getElementById('dataTableBody').innerHTML =
+                '<tr><td colspan="2">Nepodarilo sa načítať dáta</td></tr>';
+        }
+    }
+ async function loadNewDataOnly() {
+
+    if (!lastKnownTimestamp) {
+        console.log("Polling: lastKnownTimestamp ešte neexistuje");
+        return;
+    }
+
+    try {
+
+        console.log(
+            "Polling od timestampu:",
+            lastKnownTimestamp
+        );
+
+        const { data, error } = await supabaseClient
+            .from(TABLE_NAME)
+            .select('*')
+            .gt('measured_at', Math.floor(lastKnownTimestamp))
+            .order('measured_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || data.length === 0) {
+            console.log("Polling: žiadne nové dáta");
+            return;
+        }
+
+        console.log(
+            `Polling našiel ${data.length} nových záznamov`
+        );
+
+        data.forEach(row => {
+            handleInsert(row);
+        });
+
+    } catch (err) {
+
+        console.error(
+            "Polling error:",
+            err
+        );
+
+    }
+}
+    function refreshChartSmart() {
+        if (currentTimeFilter === 'all' && timeOffset === 0) {
+            renderChart();
+            return;
+        }
+        renderChart();
+    }
+
+    function handleInsert(row) {
+        const normalized = normalizeRow(row);
+        if (!Number.isFinite(normalized.measured_at_epoch)) return;
+
+        const key = getDataKey(normalized);
+        const exists = allData.some(item => getDataKey(item) === key);
+
+        if (!exists) {
+            allData.push(normalized);
+            sortData(allData);
+        } else {
+            const index = allData.findIndex(item => getDataKey(item) === key);
+            if (index >= 0) allData[index] = normalized;
+            sortData(allData);
+        }
+
+        updateStats();
+
+        if (currentTimeFilter === 'all' && timeOffset === 0) {
+            const points = buildChartData([{ ...normalized }]);
+            if (chart && points.length) {
+                chart.data.datasets[0].data.push(points[0]);
+                const yBounds = getChartBounds(chart.data.datasets[0].data);
+                if (yBounds) {
+                    chart.options.scales.y.min = yBounds.min;
+                    chart.options.scales.y.max = yBounds.max;
+                }
+                chart.options.scales.x.max = points[0].x;
+                if (!chart.options.scales.x.min || points[0].x < chart.options.scales.x.min) {
+                    chart.options.scales.x.min = points[0].x;
+                }
+                chart.update('none');
+                updateTimeNavigation();
+                updateTable();
+                return;
+            }
+        }
+
+        refreshChartSmart();
+        if (
+            !lastKnownTimestamp ||
+            normalized.measured_at_epoch > lastKnownTimestamp
+        ) {
+            lastKnownTimestamp =
+                normalized.measured_at_epoch;
+        }
+    }
+
+    function handleUpdate(row) {
+        const normalized = normalizeRow(row);
+        if (!Number.isFinite(normalized.measured_at_epoch)) return;
+
+        const key = getDataKey(normalized);
+        const index = allData.findIndex(item => getDataKey(item) === key);
+
+        if (index >= 0) {
+            allData[index] = normalized;
+        } else {
+            allData.push(normalized);
+        }
+
+        sortData(allData);
+        updateStats();
+        refreshChartSmart();
+    }
+
+    function handleDelete(row) {
+        const removed = removeRow(row);
+        if (removed) {
+            updateStats();
+            refreshChartSmart();
+        }
+    }
+
+    async function setupRealtime() {
+
+        try {
+            if (realtimeChannel) {
+                await supabaseClient.removeChannel(realtimeChannel);
+            }
+
+            updateRealtimeBadge('loading', 'Pripájam realtime...');
+            realtimeChannel = supabaseClient
+                .channel('plant_measurements_live')
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: TABLE_NAME
+                }, payload => {
+                    console.log('INSERT:', payload);
+                    handleInsert(payload.new);
+                    updateStatus('online');
+                    updateRealtimeBadge('online', 'Realtime aktívny');
+                })
+                .on('postgres_changes', {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: TABLE_NAME
+                }, payload => {
+                    console.log('UPDATE:', payload);
+                    handleUpdate(payload.new);
+                    updateStatus('online');
+                    updateRealtimeBadge('online', 'Realtime aktívny');
+                })
+                .on('postgres_changes', {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: TABLE_NAME
+                }, payload => {
+                    console.log('DELETE:', payload);
+                    handleDelete(payload.old);
+                    updateStatus('online');
+                    updateRealtimeBadge('online', 'Realtime aktívny');
+                })
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: TABLE_NAME
+                }, payload => {
+
+                    console.log(
+                        "🔥 REALTIME INSERT PRIŠIEL",
+                        payload
+                    );
+
+                    handleInsert(payload.new);
+
+                })
+                .subscribe((status, err) => {
+                    console.log('Realtime status:', status, err || '');
+
+                    if (status === 'SUBSCRIBED') {
+                        isRealtimeReady = true;
+                        updateRealtimeBadge('online', 'Realtime aktívny');
+                        if (allData.length) {
+                            updateStatus('online');
+                        }
+                        return;
+                    }
+
+                    if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+                        isRealtimeReady = false;
+                        updateRealtimeBadge('offline', 'Realtime nepripravený');
+                        if (allData.length === 0) {
+                            updateStatus('offline');
+                        }
+                        if (err) console.error('Realtime chyba:', err);
+                    } else {
+                        updateRealtimeBadge('loading', 'Pripájam realtime...');
+                    }
+                });
+
+        } catch (error) {
+            console.error('Chyba realtime:', error);
+            isRealtimeReady = false;
+            updateRealtimeBadge('offline', 'Realtime chyba');
+            if (!allData.length) updateStatus('offline');
+        }
+    }
+
+    async function manualRefresh() {
+        document.getElementById('refreshBtn').disabled = true;
+        try {
+            await loadAllData();
+        } finally {
+            document.getElementById('refreshBtn').disabled = false;
+        }
+    }
+
+    function filterByTime(minutes) {
+        currentTimeFilter = minutes;
+        timeOffset = 0;
+
+        document.querySelectorAll('.time-filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.time == minutes) {
+                btn.classList.add('active');
+            }
+        });
+
+        renderChart();
+    }
+
+    async function clearAllData() {
+        const downloadFirst = confirm('💾 Chceš stiahnuť dáta pred vymazaním?');
+        if (downloadFirst) {
+            downloadCSV();
+        }
+
+        if (!confirm('⚠️ Naozaj chceš vymazať všetky merania z databázy? Toto sa nedá vrátiť!')) {
+            return;
+        }
+
+        try {
+            const { error } = await supabaseClient
+                .from(TABLE_NAME)
+                .delete()
+                .gte('id', 0);
+
+            if (error) throw error;
+
+            allData = [];
+            updateStats();
+            renderChart();
+            updateStatus('online');
+            updateRealtimeBadge('online', 'Realtime aktívny');
+
+            alert('✅ Všetky merania boli vymazané z databázy.');
+        } catch (error) {
+            console.error('Chyba pri mazaní:', error);
+            alert('❌ Chyba pri mazaní: ' + (error?.message || error));
+        }
+    }
+
+    function downloadCSV() {
+        if (!allData.length) {
+            alert('⚠️ Žiadne dáta na stiahnutie!');
+            return;
+        }
+
+        let csv = 'Cas,Napaťie_mV\n';
+        const sorted = [...allData];
+
+        sorted.forEach(item => {
+            csv += `"${formatTime(item.measured_at_epoch)}",${Number.isFinite(item.voltage_mv) ? item.voltage_mv.toFixed(2) : ''}\n`;
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        link.download = `rastlina_merania_${timestamp}.csv`;
+        link.style.display = 'none';
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    function setupMouseControls() {
+        let dragStartX = null;
+        let dragStartOffset = null;
+        let isMouseDown = false;
+
+        chartCanvas.addEventListener('wheel', (e) => {
+            if (currentTimeFilter === 'all') return;
+
+            e.preventDefault();
+
+            const filterMinutes = Number(currentTimeFilter);
+            const deltaMinutes = Math.max(0.25, filterMinutes * 0.1);
+
+            if (e.deltaY > 0) {
+                // novšie
+                timeOffset = Math.max(0, timeOffset - deltaMinutes);
+            } else {
+                // staršie
+                timeOffset += deltaMinutes;
+            }
+
+            renderChart();
+        }, { passive: false });
+
+        chartCanvas.addEventListener('mousedown', (e) => {
+            if (currentTimeFilter === 'all') return;
+
+            isMouseDown = true;
+            dragStartX = e.clientX;
+            dragStartOffset = timeOffset;
+            chartCanvas.style.cursor = 'grabbing';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isMouseDown || dragStartX === null) return;
+
+            const filterMinutes = Number(currentTimeFilter);
+            const deltaX = e.clientX - dragStartX;
+            const sensitivity = filterMinutes / 500;
+
+            timeOffset = Math.max(0, dragStartOffset + (deltaX * sensitivity));
+            renderChart();
+        });
+
+        document.addEventListener('mouseup', () => {
+            isMouseDown = false;
+            dragStartX = null;
+            chartCanvas.style.cursor = 'grab';
+        });
+
+        chartCanvas.style.userSelect = 'none';
+        chartCanvas.style.cursor = 'grab';
+    }
+
+    async function bootstrap() {
+        updateStatus('loading');
+        updateRealtimeBadge('loading', 'Pripájam realtime...');
+
+        await loadAllData();
+        await setupRealtime();
+
+        /* záložný polling */
+        backupPolling = setInterval(
+            loadNewDataOnly,
+            20000
+        );
+        setupMouseControls();
+    }
+
+    document.addEventListener('DOMContentLoaded', bootstrap);
+
+    window.addEventListener('beforeunload', async () => {
+        if (realtimeChannel) {
+            await supabaseClient.removeChannel(realtimeChannel);
+        }
+    });
+</script>
+</body>
+</html>
