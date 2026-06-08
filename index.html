@@ -339,7 +339,7 @@
 <div class="container">
     <div class="header">
         <h1>🌱 Meranie Elektrických Signálov Rastliny</h1>
-        <p>Graf sa načítava z <strong>Supabase</strong>, historické dáta sa stiahnu celé bez limitu a nové záznamy sa pridávajú okamžite cez <strong>Realtime subscriptions</strong>.</p>
+        <p>Graf sa načítava z <strong>Supabase</strong>. Zvolený časový úsek sa pre plynulé zobrazenie rovnomerne rozdelí na 5000 bodov. Pri výbere úseku 1 hodina alebo menej sa z danej oblasti načítajú všetky dáta. Nové záznamy sa pridávajú okamžite cez <strong>Realtime subscriptions</strong>.</p>
 
         <div class="stats">
             <div class="stat-card">
@@ -764,42 +764,108 @@
     }
 
     async function loadAllData() {
-        updateStatus('loading');
+        updateStatus('loading', 'Zisťujem počet záznamov...');
         updateRealtimeBadge('loading', 'Pripájam realtime...');
 
         try {
-            let from = 0;
-            let finished = false;
-            const loaded = [];
+            const { count, error: countError } = await supabaseClient
+                .from(TABLE_NAME)
+                .select('*', { count: 'exact', head: true });
 
-            while (!finished) {
-                const to = from + PAGE_SIZE - 1;
+            if (countError) throw countError;
 
-                const { data, error } = await supabaseClient
-                    .from(TABLE_NAME)
-                    .select('id, measured_at, voltage_mv')
-                    .order('measured_at', { ascending: true })
-                    .range(from, to);
+            const totalCount = count || 0;
+            document.getElementById('totalCount').textContent = totalCount.toString();
 
-                if (error) {
-                    throw error;
+            if (totalCount === 0) {
+                allData = [];
+                updateStats();
+                renderChart();
+                updateStatus('online');
+                updateRealtimeBadge('loading', 'Pripájam realtime...');
+                return;
+            }
+
+            const filterMinutes = Number(currentTimeFilter);
+            const isAll = currentTimeFilter === 'all';
+            let loaded = [];
+            const PAGE_SIZE = 1000;
+            const CHUNK_SIZE = 5; 
+
+            let startTimeEpoch = 0;
+            let dateLimit = null;
+            if (!isAll) {
+                startTimeEpoch = (Date.now() / 1000) - (filterMinutes * 60);
+                dateLimit = new Date(startTimeEpoch * 1000).toISOString();
+            }
+
+            let currentFrom = 0;
+            let hasMore = true;
+            const MAX_FETCH = 500000; 
+
+            while (hasMore && currentFrom < MAX_FETCH) {
+                const promises = [];
+                for (let i = 0; i < CHUNK_SIZE; i++) {
+                    if (currentFrom + (i * PAGE_SIZE) >= MAX_FETCH) break;
+                    
+                    const from = currentFrom + (i * PAGE_SIZE);
+                    const to = from + PAGE_SIZE - 1;
+                    
+                    let query = supabaseClient
+                        .from(TABLE_NAME)
+                        .select('id, measured_at, voltage_mv')
+                        .order('measured_at', { ascending: false });
+                        
+                    if (dateLimit) {
+                        query = query.gte('measured_at', dateLimit);
+                    }
+                    
+                    query = query.range(from, to);
+                    promises.push(query);
                 }
 
-                const rows = (data || []).map(normalizeRow);
-                loaded.push(...rows);
+                if (promises.length === 0) break;
 
-                if ((data || []).length < PAGE_SIZE) {
-                    finished = true;
+                const results = await Promise.all(promises);
+                for (const { data, error } of results) {
+                    if (error) throw error;
+                    if (data && data.length > 0) {
+                        loaded.push(...data);
+                        if (data.length < PAGE_SIZE) hasMore = false;
+                    } else {
+                        hasMore = false;
+                    }
+                }
+                currentFrom += CHUNK_SIZE * PAGE_SIZE;
+                updateStatus('loading', `Sťahujem dáta z DB... (${loaded.length})`);
+            }
+
+            let finalData = [];
+            if (!isAll && filterMinutes <= 60) {
+                finalData = loaded;
+            } else {
+                const TARGET_POINTS = 5000;
+                if (loaded.length <= TARGET_POINTS) {
+                    finalData = loaded;
                 } else {
-                    from += PAGE_SIZE;
+                    const step = loaded.length / TARGET_POINTS;
+                    for (let i = 0; i < TARGET_POINTS; i++) {
+                        const idx = Math.floor(i * step);
+                        if (loaded[idx]) finalData.push(loaded[idx]);
+                    }
+                    if (finalData[finalData.length - 1] !== loaded[loaded.length - 1]) {
+                        finalData.push(loaded[loaded.length - 1]);
+                    }
                 }
             }
+
+            finalData.reverse();
+            loaded = finalData.map(normalizeRow);
 
             allData = sortData(loaded);
             latestHistoryLoadedAt = new Date();
             if (allData.length > 0) {
-                lastKnownTimestamp =
-                    allData[allData.length - 1].measured_at_epoch;
+                lastKnownTimestamp = allData[allData.length - 1].measured_at_epoch;
             }
 
             updateStats();
@@ -1038,7 +1104,9 @@
         }
     }
 
-    function filterByTime(minutes) {
+    async function filterByTime(minutes) {
+        if (currentTimeFilter == minutes) return;
+
         currentTimeFilter = minutes;
         timeOffset = 0;
 
@@ -1049,7 +1117,14 @@
             }
         });
 
-        renderChart();
+        const btns = document.querySelectorAll('.time-filter-btn');
+        btns.forEach(b => b.disabled = true);
+        
+        try {
+            await loadAllData();
+        } finally {
+            btns.forEach(b => b.disabled = false);
+        }
     }
 
     async function clearAllData() {
